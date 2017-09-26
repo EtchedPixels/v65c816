@@ -1,4 +1,4 @@
-# Virtual 65
+# Virtual 65C816
 
 This is a simple emulator designed to help bring up Fuzix on the 65C816
 processor. The I/O interface matches that of the v65 virtual platform.
