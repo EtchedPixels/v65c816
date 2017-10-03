@@ -139,7 +139,8 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 	else if (addr < sizeof(ram))
 		return ram[addr];
 	else {
-		printf("*FF\n");
+		if (!debug)
+			printf("*FF\n");
 		return 0xFF;
 	}
 }
@@ -164,6 +165,7 @@ static void take_a_nap(void)
 void system_process(void)
 {
 	take_a_nap();
+	timer_int++;
 	CPU_addIRQ(1);
 }
 
