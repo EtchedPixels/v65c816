@@ -125,8 +125,8 @@ static void io_write(uint32_t addr, uint8_t value)
 	}
 	if (addr == 0x40 && value == 0xA5)
 		exit(0);
-	if (addr == 0x41 || addr == 0x42) {
-		CPU_setTrace(addr - 0x41);
+	if (addr == 0x41) {
+		CPU_setTrace(value);
 		return;
 	}
 }
