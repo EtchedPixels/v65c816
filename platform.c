@@ -125,6 +125,10 @@ static void io_write(uint32_t addr, uint8_t value)
 	}
 	if (addr == 0x40 && value == 0xA5)
 		exit(0);
+	if (addr == 0x41 || addr == 0x42) {
+		CPU_setTrace(addr - 0x41);
+		return;
+	}
 }
 
 uint8_t read65c816(uint32_t addr, uint8_t debug)
@@ -139,8 +143,10 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 	else if (addr < sizeof(ram))
 		return ram[addr];
 	else {
-		if (!debug)
+		if (!debug) {
 			printf("*FF\n");
+			sleep(1);
+		}
 		return 0xFF;
 	}
 }
@@ -202,7 +208,7 @@ int main(int argc, char *argv[])
 		atexit(exit_cleanup);
 		signal(SIGINT, cleanup);
 		signal(SIGQUIT, cleanup);
-		term.c_iflag &= ~ICANON;
+		term.c_lflag &= ~(ICANON|ECHO);
 		term.c_cc[VMIN] = 1;
 		term.c_cc[VTIME] = 0;
 		ioctl(0, TCSETS, &term);
