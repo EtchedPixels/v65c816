@@ -13,7 +13,7 @@
 #include <lib65816/cpu.h>
 #include <lib65816/cpuevent.h>
 
-static uint8_t ram[1024 * 512];
+static uint8_t ram[1024 * 8192];
 
 static uint8_t timer_int;
 static uint16_t blk;
@@ -86,6 +86,8 @@ static uint8_t io_read(uint32_t addr)
 		diskstat = 0;
 		return v;
 	}
+	fprintf(stderr, "Invalid I/O read %x\n", addr);
+	CPU_abort();
 	return 0xFF;
 }
 
@@ -129,6 +131,8 @@ static void io_write(uint32_t addr, uint8_t value)
 		CPU_setTrace(value);
 		return;
 	}
+	fprintf(stderr, "Invalid I/O write %x\n", addr);
+	CPU_abort();
 }
 
 uint8_t read65c816(uint32_t addr, uint8_t debug)
@@ -144,8 +148,8 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 		return ram[addr];
 	else {
 		if (!debug) {
-			printf("*FF\n");
-			sleep(1);
+			fprintf(stderr, "Invalid mem read %x\n", addr);
+			CPU_abort();
 		}
 		return 0xFF;
 	}
@@ -157,6 +161,10 @@ void write65c816(uint32_t addr, uint8_t value)
 		io_write(addr, value);
 	else if (addr < sizeof(ram))
 		ram[addr] = value;
+	else {
+		fprintf(stderr, "Invalid mem write %x\n", addr);
+		CPU_abort();
+	}
 }
 
 static void take_a_nap(void)
@@ -194,10 +202,12 @@ static void exit_cleanup(void)
 
 int main(int argc, char *argv[])
 {
+	int debug = 0;
 	if (argc == 2 && strcmp(argv[1], "-t") == 0) {
 		CPU_setTrace(1);
 		argc--;
 		argv++;
+		debug = 1;
 	}
 	if (argc != 1) {
 		fprintf(stderr, "%s [-t]\n", argv[0]);
@@ -211,6 +221,8 @@ int main(int argc, char *argv[])
 		term.c_lflag &= ~(ICANON|ECHO);
 		term.c_cc[VMIN] = 1;
 		term.c_cc[VTIME] = 0;
+		if (!debug)
+			term.c_lflag &= ~ISIG;
 		ioctl(0, TCSETS, &term);
 	}
 
