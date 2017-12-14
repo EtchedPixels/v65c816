@@ -132,11 +132,11 @@ void CPU_debug(void) {
 
 	opcode = DB_READ(PC.A);
 	mode = addrmodes[opcode];
-	printf("A=%04X X=%04X Y=%04X S=%04X D=%04X B=%02X P=%02X E=%1d  ",(int) A.W, (int) X.W,
+	fprintf(stderr, "A=%04X X=%04X Y=%04X S=%04X D=%04X B=%02X P=%02X E=%1d  ",(int) A.W, (int) X.W,
 									   (int) Y.W, (int) S.W,
 									   (int) D.W, (int) DB,
 									   (int) P, (int) E);
-	printf("%02X/%04X  %s ",(int) PC.B.PB,(int) PC.W.PC,mnemonics[opcode]);
+	fprintf(stderr, "%02X/%04X  %s ",(int) PC.B.PB,(int) PC.W.PC,mnemonics[opcode]);
 	switch (mode) {
         case IMM8:
             sprintf( operands, "#$%02X", DB_READ(PC.A+1) );
@@ -309,11 +309,18 @@ void CPU_debug(void) {
             break;
 
         case BLK:
-            sprintf( operands, "$%02X, $%02X", DB_READ(PC.A+2), DB_READ(PC.A+1) );
+            sprintf( operands, "$%02X, $%02X (@%06X:%02X -> @%06X:%02X)",
+                DB_READ(PC.A+2), DB_READ(PC.A+1),
+                DB_READ(PC.A+2) << 16 + X.W,
+                DB_READ(DB_READ(PC.A+2) << 16 + X.W),
+                DB_READ(PC.A+1) << 16 + Y.W,
+                DB_READ(DB_READ(PC.A+2) << 16 + Y.W)
+            );
             break;
 	}
-    printf( "%s\n", operands );
+        fprintf(stderr, "%s\n", operands);
 	fflush(stdout);
+	fflush(stderr);
 }
 
 #endif
