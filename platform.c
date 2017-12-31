@@ -13,6 +13,8 @@
 #include <lib65816/cpu.h>
 #include <lib65816/cpuevent.h>
 
+#define MAX_DISK	8
+
 static uint8_t ram[1024 * 8192];
 
 static uint8_t timer_int;
@@ -20,7 +22,7 @@ static uint16_t blk;
 static uint8_t disk;
 static uint8_t diskstat;
 
-FILE *diskfile;
+FILE *diskfile[MAX_DISK];
 
 static uint8_t check_chario(void)
 {
@@ -76,10 +78,16 @@ static uint8_t io_read(uint32_t addr)
 	if (addr == 0x32)
 		return blk & 0xFF;
 	if (addr == 0x34) {
-		int c = fgetc(diskfile);
-		if (c == EOF)
+		int c;
+		if (disk >= MAX_DISK || diskfile[disk] == NULL) {
 			diskstat = 0x02;
-		return (uint8_t)c;
+			return 0xFF;
+		} else {
+			c = fgetc(diskfile[disk]);
+			if (c == EOF)
+				diskstat = 0x02;
+			return (uint8_t)c;
+		}
 	}
 	if (addr == 0x35) {
 		uint8_t v = diskstat;
@@ -101,7 +109,10 @@ static void io_write(uint32_t addr, uint8_t value)
 		return;
 	}
 	if (addr == 0x30) {
-		disk = value;
+		if (disk > MAX_DISK || diskfile[disk] == NULL)
+			diskstat = 0x02;
+		else
+			disk = value;
 		return;
 	}
 	if (addr == 0x31) {
@@ -115,14 +126,17 @@ static void io_write(uint32_t addr, uint8_t value)
 		return;
 	}
 	if (addr == 0x33) {
-		if (disk != 0)
+		if (disk >= MAX_DISK || diskfile[disk] == NULL)
 			diskstat = 0x02;
 		else
-			diskstat = (fseek(diskfile, blk << 9, SEEK_SET) == -1) ? 0x01 : 0;
+			diskstat = (fseek(diskfile[disk], blk << 9, SEEK_SET) == -1) ? 0x01 : 0;
 		return;
 	}
 	if (addr == 0x34) {
-		fputc(value, diskfile);
+		if (disk >= MAX_DISK || diskfile[disk] == NULL)
+			diskstat = 0x02;
+		else
+			fputc(value, diskfile[disk]);
 		return;
 	}
 	if (addr == 0x40 && value == 0xA5)
@@ -137,6 +151,8 @@ static void io_write(uint32_t addr, uint8_t value)
 
 uint8_t read65c816(uint32_t addr, uint8_t debug)
 {
+	if ((addr >> 16) == 0xFF)
+		addr = 0xFE34;
 	if (addr >= 0xFE00 && addr < 0xFF00) {
 		/* Don't cause I/O when using debug trace read */
 		if (debug)
@@ -157,6 +173,8 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 
 void write65c816(uint32_t addr, uint8_t value)
 {
+	if ((addr >> 16) == 0xFF)
+		addr = 0xFE34;
 	if (addr >= 0xFE00 && addr < 0xFF00)
 		io_write(addr, value);
 	else if (addr < sizeof(ram))
@@ -200,9 +218,13 @@ static void exit_cleanup(void)
 	ioctl(0, TCSETS, &saved_term);
 }
 
+static char diskname[16] = "disk";
+
 int main(int argc, char *argv[])
 {
+	int i;
 	int debug = 0;
+
 	if (argc == 2 && strcmp(argv[1], "-t") == 0) {
 		CPU_setTrace(1);
 		argc--;
@@ -226,14 +248,17 @@ int main(int argc, char *argv[])
 		ioctl(0, TCSETS, &term);
 	}
 
-	diskfile = fopen("disk0", "r+");
-	if (diskfile == NULL) {
+	for (i = 0; i < MAX_DISK;i++) {
+		sprintf(diskname + 4, "%d", i);
+		diskfile[i] = fopen(diskname, "r+");
+	}
+	if (diskfile[0] == NULL) {
 		perror("disk0");
 		exit(1);
 	}
 	/* This doesn't go via the memory routines so we can load over
 	    the I/O space with ignored bytes just fine */
-	if (fread(ram + 0xFC00, 512, 1, diskfile) != 1) {
+	if (fread(ram + 0xFC00, 512, 1, diskfile[0]) != 1) {
 		fprintf(stderr, "Unable to read boot image.\n");
 		exit(1);
 	}
