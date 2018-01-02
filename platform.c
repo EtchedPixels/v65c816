@@ -21,6 +21,7 @@ static uint8_t timer_int;
 static uint16_t blk;
 static uint8_t disk;
 static uint8_t diskstat;
+static uint8_t dma = 0x34;	/* For the moment */
 
 FILE *diskfile[MAX_DISK];
 
@@ -67,6 +68,8 @@ static uint8_t io_read(uint32_t addr)
 		CPU_clearIRQ(1);
 		return v;
 	}
+	if (addr == 0x11)
+		return dma;
 	if (addr == 0x20)
 		return next_char();
 	if (addr == 0x21)
@@ -103,13 +106,17 @@ static uint8_t io_read(uint32_t addr)
 static void io_write(uint32_t addr, uint8_t value)
 {
 	addr &= 0xFF;
+	if (addr == 0x11) {
+		dma = value;
+		return;
+	}
 	if (addr == 0x20) {
 		putchar(value);
 		fflush(stdout);
 		return;
 	}
 	if (addr == 0x30) {
-		if (disk > MAX_DISK || diskfile[disk] == NULL)
+		if (disk >= MAX_DISK || diskfile[disk] == NULL)
 			diskstat = 0x02;
 		else
 			disk = value;
@@ -152,7 +159,7 @@ static void io_write(uint32_t addr, uint8_t value)
 uint8_t read65c816(uint32_t addr, uint8_t debug)
 {
 	if ((addr >> 16) == 0xFF)
-		addr = 0xFE34;
+		addr = 0xFE00 + dma;
 	if (addr >= 0xFE00 && addr < 0xFF00) {
 		/* Don't cause I/O when using debug trace read */
 		if (debug)
@@ -174,7 +181,7 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 void write65c816(uint32_t addr, uint8_t value)
 {
 	if ((addr >> 16) == 0xFF)
-		addr = 0xFE34;
+		addr = 0xFE00 + dma;
 	if (addr >= 0xFE00 && addr < 0xFF00)
 		io_write(addr, value);
 	else if (addr < sizeof(ram))
@@ -242,7 +249,7 @@ int main(int argc, char *argv[])
 		signal(SIGQUIT, cleanup);
 		term.c_lflag &= ~(ICANON|ECHO);
 		term.c_cc[VMIN] = 1;
-		term.c_cc[VTIME] = 0;
+		term.c_cc[VTIME] = 1;
 		if (!debug)
 			term.c_lflag &= ~ISIG;
 		ioctl(0, TCSETS, &term);
