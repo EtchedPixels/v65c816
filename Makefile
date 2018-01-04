@@ -8,7 +8,7 @@ lib65816:
 	cd lib65816 && $(MAKE)
 
 v65: platform.o lib65816/src/lib65816.a
-	cc -g3 -o $@ $^
+	cc -g3 -o $@ $^ -lSDL2
 
 platform.c: config.h
 

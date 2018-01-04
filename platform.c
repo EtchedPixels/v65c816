@@ -13,6 +13,8 @@
 #include <lib65816/cpu.h>
 #include <lib65816/cpuevent.h>
 
+#include <SDL2/SDL.h>
+
 #define MAX_DISK	8
 
 static uint8_t ram[1024 * 8192];
@@ -24,6 +26,107 @@ static uint8_t diskstat;
 static uint8_t dma = 0x34;	/* For the moment */
 
 FILE *diskfile[MAX_DISK];
+
+
+/*
+ *	This is a fairly dumb way to implement an emulated frame buffer but
+ *	on the other hand it didn't take very long to write.
+ */
+
+static SDL_Window *screen;
+static SDL_Renderer *rend;
+static SDL_Texture *texture;
+static uint32_t pixbuf[16384 * 8];
+static uint8_t vram[16384];
+static uint8_t key;
+
+
+static void video_shutdown(void)
+{
+	SDL_Quit();
+}
+
+static int video_init(void)
+{
+	SDL_Init(SDL_INIT_EVERYTHING);
+
+	screen = SDL_CreateWindow("v65C816", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 200, SDL_WINDOW_RESIZABLE);
+
+	if (screen == NULL)
+		return -1;
+
+	rend = SDL_CreateRenderer(screen, -1, 0);
+
+	if (rend == NULL)
+		return -1;
+
+	texture = SDL_CreateTexture(rend, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 640, 200);
+
+	if (texture == NULL)
+		return -1;
+
+	SDL_SetRenderDrawColor(rend, 0, 0, 0, 255);
+	SDL_RenderClear(rend);
+	SDL_RenderPresent(rend);
+
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+	SDL_RenderSetLogicalSize(rend, 640, 200);
+
+	SDL_StartTextInput();
+
+	return 0;
+}
+
+
+void video_write_ram(uint16_t addr, uint8_t val)
+{
+	int i;
+	uint32_t taddr;
+
+	addr &= 0x3FFF;
+	vram[addr] = val;
+
+	taddr = addr << 3;
+
+	for (i = 0; i < 8; i++) {
+		if (val & 0x80)
+			pixbuf[taddr] = 0xFFFFFFFF;
+		else
+			pixbuf[taddr] = 0x00000000;
+		taddr++;
+		val <<= 1;
+	}
+}
+
+static uint8_t video_read_ram(uint16_t addr)
+{
+	addr &= 0x3FFF;
+	return vram[addr];
+}
+
+static void video_update(void)
+{
+	SDL_UpdateTexture(texture, NULL, pixbuf, 640 * 4);
+	SDL_RenderClear(rend);
+	SDL_RenderCopy(rend, texture, NULL, NULL);
+	SDL_RenderPresent(rend);
+}
+
+static int video_event(void)
+{
+	SDL_Event event;
+
+	while (SDL_PollEvent(&event)) {
+		if (event.type == SDL_QUIT)
+			return -1;
+		if (event.type == SDL_TEXTINPUT) {
+			key = *event.text.text;
+			printf("Typed '%c'\n", key);
+		}
+	}
+	return 0;
+}
+
 
 static uint8_t check_chario(void)
 {
@@ -59,6 +162,20 @@ static unsigned int next_char(void)
 	return c;
 }
 
+static uint8_t check_keyio(void)
+{
+	if (key == 0xFF)
+		return 0;
+	return 1;
+}
+
+static uint8_t next_key(void)
+{
+	uint8_t r = key;
+	key = 0xFF;
+	return r;
+}
+
 static uint8_t io_read(uint32_t addr)
 {
 	addr &= 0xFF;
@@ -74,6 +191,10 @@ static uint8_t io_read(uint32_t addr)
 		return next_char();
 	if (addr == 0x21)
 		return check_chario();
+	if (addr == 0x22)
+		return next_key();
+	if (addr == 0x23)
+		return check_keyio();
 	if (addr == 0x30)
 		return disk;
 	if (addr == 0x31)
@@ -89,7 +210,7 @@ static uint8_t io_read(uint32_t addr)
 			c = fgetc(diskfile[disk]);
 			if (c == EOF)
 				diskstat = 0x02;
-			return (uint8_t)c;
+			return (uint8_t) c;
 		}
 	}
 	if (addr == 0x35) {
@@ -160,14 +281,15 @@ uint8_t read65c816(uint32_t addr, uint8_t debug)
 {
 	if ((addr >> 16) == 0xFF)
 		addr = 0xFE00 + dma;
+	if ((addr >> 16) == 0xFE)
+		return video_read_ram(addr);
 	if (addr >= 0xFE00 && addr < 0xFF00) {
 		/* Don't cause I/O when using debug trace read */
 		if (debug)
 			return 0xFF;
 		else
 			return io_read(addr);
-	}
-	else if (addr < sizeof(ram))
+	} else if (addr < sizeof(ram))
 		return ram[addr];
 	else {
 		if (!debug) {
@@ -182,7 +304,9 @@ void write65c816(uint32_t addr, uint8_t value)
 {
 	if ((addr >> 16) == 0xFF)
 		addr = 0xFE00 + dma;
-	if (addr >= 0xFE00 && addr < 0xFF00)
+	if ((addr >> 16) == 0xFE)
+		video_write_ram(addr, value);
+	else if (addr >= 0xFE00 && addr < 0xFF00)
 		io_write(addr, value);
 	else if (addr < sizeof(ram))
 		ram[addr] = value;
@@ -203,6 +327,9 @@ static void take_a_nap(void)
 
 void system_process(void)
 {
+	video_update();
+	if (video_event())
+		exit(0);
 	take_a_nap();
 	timer_int++;
 	CPU_addIRQ(1);
@@ -242,12 +369,16 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "%s [-t]\n", argv[0]);
 		exit(1);
 	}
+
+	if (video_init() < 0)
+		exit(1);
+
 	if (ioctl(0, TCGETS, &term) == 0) {
 		saved_term = term;
 		atexit(exit_cleanup);
 		signal(SIGINT, cleanup);
 		signal(SIGQUIT, cleanup);
-		term.c_lflag &= ~(ICANON|ECHO);
+		term.c_lflag &= ~(ICANON | ECHO);
 		term.c_cc[VMIN] = 1;
 		term.c_cc[VTIME] = 1;
 		if (!debug)
@@ -255,7 +386,7 @@ int main(int argc, char *argv[])
 		ioctl(0, TCSETS, &term);
 	}
 
-	for (i = 0; i < MAX_DISK;i++) {
+	for (i = 0; i < MAX_DISK; i++) {
 		sprintf(diskname + 4, "%d", i);
 		diskfile[i] = fopen(diskname, "r+");
 	}
@@ -264,7 +395,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	/* This doesn't go via the memory routines so we can load over
-	    the I/O space with ignored bytes just fine */
+	   the I/O space with ignored bytes just fine */
 	if (fread(ram + 0xFC00, 512, 1, diskfile[0]) != 1) {
 		fprintf(stderr, "Unable to read boot image.\n");
 		exit(1);
@@ -274,5 +405,6 @@ int main(int argc, char *argv[])
 	CPU_setUpdatePeriod(41943);	/* 4MHz */
 	CPU_reset();
 	CPU_run();
+	video_shutdown();
 	exit(0);
 }
