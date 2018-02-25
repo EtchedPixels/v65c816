@@ -50,7 +50,9 @@ static int video_init(void)
 {
 	SDL_Init(SDL_INIT_EVERYTHING);
 
-	screen = SDL_CreateWindow("v65C816", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 200, SDL_WINDOW_RESIZABLE);
+	screen = SDL_CreateWindow("v65C816",
+			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+			656, 416, SDL_WINDOW_RESIZABLE);
 
 	if (screen == NULL)
 		return -1;
@@ -60,7 +62,8 @@ static int video_init(void)
 	if (rend == NULL)
 		return -1;
 
-	texture = SDL_CreateTexture(rend, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 640, 200);
+	texture = SDL_CreateTexture(rend, SDL_PIXELFORMAT_ARGB8888,
+				SDL_TEXTUREACCESS_STREAMING, 640, 200);
 
 	if (texture == NULL)
 		return -1;
@@ -70,7 +73,8 @@ static int video_init(void)
 	SDL_RenderPresent(rend);
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-	SDL_RenderSetLogicalSize(rend, 640, 200);
+	SDL_RenderSetLogicalSize(rend, 656, 416);
+//	SDL_RenderSetScale(rend, 1.0, 2.0);
 
 	SDL_StartTextInput();
 
@@ -106,9 +110,14 @@ static uint8_t video_read_ram(uint16_t addr)
 
 static void video_update(void)
 {
+	SDL_Rect sr;
+	sr.x = 8;
+	sr.y = 8;
+	sr.w = 640;
+	sr.h = 400;
 	SDL_UpdateTexture(texture, NULL, pixbuf, 640 * 4);
 	SDL_RenderClear(rend);
-	SDL_RenderCopy(rend, texture, NULL, NULL);
+	SDL_RenderCopy(rend, texture, NULL, &sr);
 	SDL_RenderPresent(rend);
 }
 
@@ -237,7 +246,7 @@ static void io_write(uint32_t addr, uint8_t value)
 		return;
 	}
 	if (addr == 0x30) {
-		if (disk >= MAX_DISK || diskfile[disk] == NULL)
+		if (value >= MAX_DISK || diskfile[value] == NULL)
 			diskstat = 0x02;
 		else
 			disk = value;
